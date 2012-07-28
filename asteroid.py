@@ -61,6 +61,8 @@ class Player(object):
         self.diag = math.sqrt(side_length ** 2 + (side_length / 2) ** 2)
         self.points = [pos, pos, pos]
         self.lspeed = 0.04
+        self.despeed = self.lspeed / 2
+        self.maxspeed = 2.0
         self.aspeed = math.pi / 135.0
         self.angle = 0
         self.velocity = Vector2D.zeros()
@@ -83,12 +85,15 @@ class Player(object):
         if not self.alive:
             return
         keys = pygame.key.get_pressed()
-        if keys[pygame.K_DOWN]:
-            self.velocity.Y += self.lspeed
-        elif keys[pygame.K_UP]:
-            self.velocity.Y -= self.lspeed
+        if keys[pygame.K_DOWN] and self.velocity.Y < self.maxspeed:
+                self.velocity.Y += self.lspeed
+        elif keys[pygame.K_UP] and self.velocity.Y > -self.maxspeed:
+                self.velocity.Y -= self.lspeed
         else:
-            pass
+            if self.velocity.Y > 0:
+                self.velocity.Y -= self.despeed
+            elif self.velocity.Y < 0:
+                self.velocity.Y += self.despeed
 
         if keys[pygame.K_LEFT]:
             self.angle -= self.aspeed
@@ -107,27 +112,34 @@ class Player(object):
 
 
 class Asteroid(object):
-    def __init__(self, pos=Vector2D(10, 10)):
+    def __init__(self, pos, radius_range):
         self.pos = pos
-        self.points = []
-        self.radius = random.randint(4, 15)
-        xspeed = (random.random() * 2 - 1) / 5
-        yspeed = (random.random() * 2 - 1) / 5
+        self.radius = random.randint(radius_range[0], radius_range[1])
+        xspeed = (random.random() * 2 - 1) / random.randint(1, 5)
+        yspeed = (random.random() * 2 - 1) / random.randint(1, 5)
         self.velocity = Vector2D(xspeed, yspeed)
         num_sides = random.randint(5, 10)
+        maxd = 2 * self.radius / num_sides
         a = 2 * math.pi / num_sides
         v = Vector2D(self.radius, 0.0)
+        self.points = list()
+        self.offsets = list()
         for i in range(num_sides):
             xy = random.randint(0, 1)
-            d = random.randint(-self.radius / num_sides, self.radius / num_sides)
+            d = random.randint(-maxd, maxd)
             if xy:
-                self.points.append(v + Vector2D(d, 0) + self.pos)
+                offset = v + Vector2D(d, 0)
+                self.offsets.append(offset)
+                self.points.append(offset + self.pos)
             else:
-                self.points.append(v + Vector2D(0, d) + self.pos)
+                offset = v + Vector2D(0, d)
+                self.offsets.append(offset)
+                self.points.append(offset + self.pos)
             v = v.rotate(a)
 
         self.rect = pygame.rect.Rect(0, 0, int(self.radius * 1.9), int(self.radius * 1.9))
         self.rect.center = (self.pos.X, self.pos.Y)
+        self.update(0.0)
         self.color = pygame.Color('white')
         self.alive = True
 
@@ -135,16 +147,34 @@ class Asteroid(object):
         self.pos += self.velocity
         self.rect.center = (self.pos.X, self.pos.Y)
         # just update each point comprising the asteroid
-        for i, point in enumerate(self.points):
-            self.points[i] = point + self.velocity
+        for i, offset in enumerate(self.offsets):
+            self.points[i] = offset + self.pos
 
     def render(self, surface, ms):
         #pygame.draw.circle(surface, self.color, (int(self.pos.X), int(self.pos.Y)), self.radius, 1)
         pygame.draw.lines(surface, self.color, True, self.points)
 
 class AsteroidField(object):
-    def __init__(self, count=10, viewport=pygame.rect.Rect(0,0,640,480)):
-        self.asteroids = [Asteroid(Vector2D(random.randint(0, viewport.width-10), random.randint(0, viewport.height-10))) for i in range(count)]
+    def __init__(self, count=15, viewport=pygame.rect.Rect(0,0,640,480)):
+        self.viewport = viewport
+        # Asteroid radius-related variables
+        self.min_radius = (viewport.width + viewport.height) / 200
+        self.max_radius = (viewport.width + viewport.height) / 40
+        self.radius_range = self.max_radius - self.min_radius
+        self.small = self.min_radius + self.radius_range / 3
+        self.med = self.small + self.radius_range / 3
+        self.big = self.max_radius
+
+        self.asteroids = [
+                        Asteroid(
+                            Vector2D(
+                                random.randint(0, viewport.width),
+                                random.randint(0, viewport.height)
+                            ),
+                            (self.min_radius, self.max_radius)
+                        )
+                        for i in range(count)
+        ]
 
     def update(self, ms):
         for a in self.asteroids:
@@ -152,6 +182,14 @@ class AsteroidField(object):
                 self.asteroids.remove(a)
                 del(a)
             else:
+                if a.pos.X < self.viewport.left:
+                    a.pos.X = self.viewport.right
+                elif a.pos.X > self.viewport.right:
+                    a.pos.X = self.viewport.left
+                if a.pos.Y < self.viewport.top:
+                    a.pos.Y = self.viewport.bottom
+                elif a.pos.Y > self.viewport.bottom:
+                    a.pos.Y = self.viewport.top
                 a.update(ms)
 
     def render(self, surface, ms):
@@ -176,17 +214,21 @@ class Camera(object):
 
 
 class HUD(object):
-    def __init__(self, size, fontsize, health_getters):
+    def __init__(self, size, fontsize, funcs):
         self.width, self.height = size
         self.font = pygame.font.Font(None, fontsize)
         self.color = pygame.Color('white')
         self.bgcolor = pygame.Color('black')
-        self.health_getters = health_getters
-        self.surfaces = range(len(health_getters))
+        self.funcs = funcs
+        #self.surfaces = range(len(funcs))
+        self.surfaces = [None, None]
 
     def update(self, ms):
-        for i, func in enumerate(self.health_getters):
-            self.surfaces[i] = self.font.render(str(int(func())), 1, self.color) #, self.bgcolor)
+        #for i, func in enumerate(self.funcs):
+        self.surfaces[0] = self.font.render("Health: " +
+                str(int(self.funcs[0]())), 1, self.color)
+        self.surfaces[1] = self.font.render("Score: " +
+                str(int(self.funcs[1]())), 1, self.color)
 
     def render(self, surface, ms):
         for i, s in enumerate(self.surfaces):
@@ -270,8 +312,15 @@ def main():
 
     afield = AsteroidField(10, viewport)
 
-    explode_image = load_image('explosion-sprite.png', scale=1)
-    explode_sprite = load_sliced_sprites(20, 20, explode_image)
+    small_explode_image = load_image('explosion-sprite.png', scale=1)
+    small_explode_sprite = load_sliced_sprites(20, 20, small_explode_image)
+
+    med_explode_image = load_image('explosion-sprite.png', scale=2)
+    med_explode_sprite = load_sliced_sprites(40, 40, med_explode_image)
+
+    big_explode_image = load_image('explosion-sprite.png', scale=3)
+    big_explode_sprite = load_sliced_sprites(60, 60, big_explode_image)
+
     # temp "pool" for updating/rendering particles
     explosions = list()
 
@@ -282,16 +331,24 @@ def main():
     #    healths.append(player.get_health)
     hud = HUD(size, 32, hud_items)
 
+    game_over_font = pygame.font.Font(None, 72)
+    game_over_msg = game_over_font.render("GAME OVER", 1, pygame.Color('white'))
+    offX = (viewport.width - game_over_msg.get_width()) / 2
+    offY = (viewport.height - game_over_msg.get_height()) / 2
+
     #camera = Camera(size, tilemap0.rect, player0.get_pos)
 
     black = pygame.Color('black')
     screen.fill(black)
     pygame.display.update()
 
+    game_over = False
     running = True
     while running:
         events = pygame.event.get()
         for e in events:
+            if e.type == pygame.QUIT:
+                running = False
             if e.type == pygame.KEYDOWN:
                 if e.key == pygame.K_ESCAPE:
                     running = False
@@ -307,17 +364,33 @@ def main():
                     if a.rect.colliderect(b.rect):
                         b.alive = False
                         player0.score += 1
-                        explosions.append(Explosion(explode_sprite, a.rect.center))
+                        if a.radius < afield.small:
+                            explosions.append(Explosion(small_explode_sprite, a.rect.center))
+                        elif a.radius < afield.med:
+                            explosions.append(Explosion(med_explode_sprite, a.rect.center))
+                        else:
+                            explosions.append(Explosion(big_explode_sprite, a.rect.center))
                         a.alive = False
 
-        if player0.alive:
-            for a in afield.asteroids:
-                if a.rect.colliderect(player0.rect):
-                    player0.health -= 1
-                    if player0.health <= 0:
-                        explosions.append(Explosion(explode_sprite, player0.rect.center))
-                        # game over
-                        player0.alive = False
+        if len(afield.asteroids) == 0:
+            game_over = True
+        for a in afield.asteroids:
+            if player0.alive and a.rect.colliderect(player0.rect):
+                player0.health -= 1
+                if player0.health <= 0:
+                    explosions.append(Explosion(big_explode_sprite, player0.rect.center))
+                    # game over
+                    player0.alive = False
+                    game_over = True
+
+        if player0.pos.X < 0:
+            player0.pos.X = size[0]
+        elif player0.pos.X > size[0]:
+            player0.pos.X = 0
+        elif player0.pos.Y < 0:
+            player0.pos.Y = size[1]
+        elif player0.pos.Y > size[1]:
+            player0.pos.Y = 0
 
         player0.update(clock.get_time())
         afield.update(clock.get_time())
@@ -337,6 +410,9 @@ def main():
         hud.update(clock.get_time())
 
         screen.fill(black)
+
+        if game_over:
+            screen.blit(game_over_msg, (offX, offY))
 
         for b in bullets:
             b.render(screen, clock.get_time())
