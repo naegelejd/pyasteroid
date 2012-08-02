@@ -7,8 +7,10 @@ import random
 import pygame
 import cProfile as profile
 
-R = None
+# GLOBALS
+LEVEL = 0
 
+#########
 
 def load_image(name, scale=1, colorkey=None):
     fullname = os.path.abspath(name.replace('../', '../../res/'))
@@ -56,17 +58,18 @@ class DUMMY(object):
 class Player(object):
     def __init__(self, pos=Vector2D(320, 240)):
         self.pos = pos
-        side_length = 8
+        side_length = 4
         self.rect = pygame.rect.Rect(0, 0, 2 * side_length, 2 * side_length)
         self.diag = math.sqrt(side_length ** 2 + (side_length / 2) ** 2)
         self.points = [pos, pos, pos]
         self.lspeed = 0.04
         self.despeed = self.lspeed / 2
         self.maxspeed = 2.0
-        self.aspeed = math.pi / 135.0
+        self.aspeed = math.pi / 90.0
         self.angle = 0
         self.velocity = Vector2D.zeros()
         self.color = pygame.Color('white')
+        self.ret_color = pygame.Color(24, 24, 24)
         self.health = 100
         self.alive = True
         self.score = 0
@@ -109,6 +112,10 @@ class Player(object):
     def render(self, surface, ms):
         if self.alive:
             pygame.draw.lines(surface, self.color, True, self.points)
+            # draw a 'reticle'
+            direction = Vector2D(0, -512).rotate(self.angle)
+            pygame.draw.line(surface, self.ret_color, self.pos, self.pos + direction, 1)
+
 
 
 class Asteroid(object):
@@ -155,7 +162,7 @@ class Asteroid(object):
         pygame.draw.lines(surface, self.color, True, self.points)
 
 class AsteroidField(object):
-    def __init__(self, count=15, viewport=pygame.rect.Rect(0,0,640,480)):
+    def __init__(self, level, viewport, forbidden_rect):
         self.viewport = viewport
         # Asteroid radius-related variables
         self.min_radius = (viewport.width + viewport.height) / 200
@@ -164,6 +171,8 @@ class AsteroidField(object):
         self.small = self.min_radius + self.radius_range / 3
         self.med = self.small + self.radius_range / 3
         self.big = self.max_radius
+
+        count = 5 * level + 10
 
         self.asteroids = [
                         Asteroid(
@@ -175,6 +184,15 @@ class AsteroidField(object):
                         )
                         for i in range(count)
         ]
+        # move each asteroid if it initially collides with the player
+        for i, a in enumerate(self.asteroids):
+            if a.rect.colliderect(forbidden_rect):
+                self.asteroids[i] = Asteroid(
+                                        Vector2D(
+                                            a.pos.X + forbidden_rect.centerx,
+                                            a.pos.Y + forbidden_rect.centery,
+                                        ), (self.min_radius, self.max_radius)
+                                    )
 
     def update(self, ms):
         for a in self.asteroids:
@@ -214,14 +232,16 @@ class Camera(object):
 
 
 class HUD(object):
+    """heads up display shows Health, Score and Level"""
     def __init__(self, size, fontsize, funcs):
+        assert(len(funcs) == 3)
         self.width, self.height = size
         self.font = pygame.font.Font(None, fontsize)
         self.color = pygame.Color('white')
         self.bgcolor = pygame.Color('black')
         self.funcs = funcs
-        #self.surfaces = range(len(funcs))
-        self.surfaces = [None, None]
+        self.num_items = len(funcs)
+        self.surfaces = [None for i in range(self.num_items)]
 
     def update(self, ms):
         #for i, func in enumerate(self.funcs):
@@ -229,10 +249,13 @@ class HUD(object):
                 str(int(self.funcs[0]())), 1, self.color)
         self.surfaces[1] = self.font.render("Score: " +
                 str(int(self.funcs[1]())), 1, self.color)
+        self.surfaces[2] = self.font.render("Level: " +
+                str(int(self.funcs[2]())), 1, self.color)
+
 
     def render(self, surface, ms):
         for i, s in enumerate(self.surfaces):
-            surface.blit(s, ((i + 1) * (self.width / (len(self.surfaces) + 2)), 0))
+            surface.blit(s, ((i + 1) * (self.width / (self.num_items + 2)), 0))
 
 
 class Bullet(object):
@@ -242,7 +265,7 @@ class Bullet(object):
         self.pos = center
         self.rect = pygame.rect.Rect(0, 0, 2*self.radius, 2*self.radius)
         self.rect.center = (center.X, center.Y)
-        self.velocity = direction.normal() * 2
+        self.velocity = direction.normal() * 4
         self.alive = True
         self._age = 0
         self._lifetime = 2000
@@ -251,8 +274,9 @@ class Bullet(object):
         if self.alive:
             self._age += ms
 
-            #if self._age > self._lifetime:
-            #    self.alive = False
+            # kill itself if it reaches its max lifetime
+            if self._age > self._lifetime:
+                self.alive = False
             self.pos += self.velocity
             self.rect.center = (self.pos.X, self.pos.Y)
 
@@ -276,13 +300,6 @@ class Explosion(object):
         self._frame_timer = 0
         # determines whether sprite should look forward when not moving
 
-    def prevent_collision(self, other):
-        if self.rect.colliderect(other.rect) and not self.stunned:
-            # direct player away from collision
-            self.velocity -= 2 * self.velocity
-            self.health -= 1
-            self.stunned = True
-
     def update(self, ms):
         if self.alive:
             self._frame_timer += ms
@@ -300,7 +317,12 @@ class Explosion(object):
             surface.blit(self.image, self.rect)
 
 
+def get_level():
+    """Hack to return the current level."""
+    return LEVEL
+
 def main():
+    global LEVEL
     pygame.init()
     pygame.font.init()
     size = (640, 480)
@@ -310,7 +332,9 @@ def main():
     clock = pygame.time.Clock()
     player0 = Player(Vector2D(300, 200))
 
-    afield = AsteroidField(10, viewport)
+    LEVEL = 1
+
+    afield = AsteroidField(LEVEL, viewport, player0.rect)
 
     small_explode_image = load_image('explosion-sprite.png', scale=1)
     small_explode_sprite = load_sliced_sprites(20, 20, small_explode_image)
@@ -326,7 +350,7 @@ def main():
 
     bullets = list()
 
-    hud_items = [player0.get_health, player0.get_score]
+    hud_items = [player0.get_health, player0.get_score, get_level]
     #for player in players:
     #    healths.append(player.get_health)
     hud = HUD(size, 32, hud_items)
@@ -352,28 +376,38 @@ def main():
             if e.type == pygame.KEYDOWN:
                 if e.key == pygame.K_ESCAPE:
                     running = False
-                if e.key == pygame.K_SPACE:
+                if e.key == pygame.K_SPACE and player0.alive:
                     bullets.append(Bullet(player0.pos, player0.get_direction()))
 
-        # kill bullets that have left the viewport
         for b in bullets:
-            if not viewport.colliderect(b.rect):
-                b.alive = False
-            else:
-                for a in afield.asteroids:
-                    if a.rect.colliderect(b.rect):
-                        b.alive = False
-                        player0.score += 1
-                        if a.radius < afield.small:
-                            explosions.append(Explosion(small_explode_sprite, a.rect.center))
-                        elif a.radius < afield.med:
-                            explosions.append(Explosion(med_explode_sprite, a.rect.center))
-                        else:
-                            explosions.append(Explosion(big_explode_sprite, a.rect.center))
-                        a.alive = False
+            # kill bullets that have left the viewport
+            #if not viewport.colliderect(b.rect):
+            #    b.alive = False
+            #else:
+            if b.pos.X < 0:
+                b.pos.X = size[0]
+            elif b.pos.X > size[0]:
+                b.pos.X = 0
+            elif b.pos.Y < 0:
+                b.pos.Y = size[1]
+            elif b.pos.Y > size[1]:
+                b.pos.Y = 0
+            # brute force collision checking for each bullet -> each asteroid
+            for a in afield.asteroids:
+                if a.rect.colliderect(b.rect):
+                    b.alive = False
+                    player0.score += 1
+                    if a.radius < afield.small:
+                        explosions.append(Explosion(small_explode_sprite, a.rect.center))
+                    elif a.radius < afield.med:
+                        explosions.append(Explosion(med_explode_sprite, a.rect.center))
+                    else:
+                        explosions.append(Explosion(big_explode_sprite, a.rect.center))
+                    a.alive = False
 
         if len(afield.asteroids) == 0:
-            game_over = True
+            LEVEL += 1
+            afield = AsteroidField(LEVEL, viewport, player0.rect)
         for a in afield.asteroids:
             if player0.alive and a.rect.colliderect(player0.rect):
                 player0.health -= 1
@@ -414,17 +448,17 @@ def main():
         if game_over:
             screen.blit(game_over_msg, (offX, offY))
 
+        player0.render(screen, clock.get_time())
         for b in bullets:
             b.render(screen, clock.get_time())
         for p in explosions:
             p.render(screen, clock.get_time())
         afield.render(screen, clock.get_time())
-        player0.render(screen, clock.get_time())
         hud.render(screen, clock.get_time())
 
         pygame.display.flip()
         clock.tick(60)
-        #pygame.time.delay(100)
+        pygame.time.delay(10)
 
     # game over
     pygame.quit()
