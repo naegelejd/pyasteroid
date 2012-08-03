@@ -360,13 +360,16 @@ def main():
 
     afield = AsteroidField(LEVEL, viewport, player0.rect)
 
-    small_explode_image = load_image('explosion-sprite.png', scale=1)
+    dirname = os.path.dirname(os.path.abspath(__file__))
+    explosion_image = os.path.join(dirname, 'explosion-sprite.png')
+
+    small_explode_image = load_image(explosion_image, scale=1)
     small_explode_sprite = load_sliced_sprites(20, 20, small_explode_image)
 
-    med_explode_image = load_image('explosion-sprite.png', scale=2)
+    med_explode_image = load_image(explosion_image, scale=2)
     med_explode_sprite = load_sliced_sprites(40, 40, med_explode_image)
 
-    big_explode_image = load_image('explosion-sprite.png', scale=3)
+    big_explode_image = load_image(explosion_image, scale=3)
     big_explode_sprite = load_sliced_sprites(60, 60, big_explode_image)
 
     # temp "pool" for updating/rendering particles
