@@ -62,11 +62,10 @@ class Player(object):
         self.rect = pygame.rect.Rect(0, 0, 2 * side_length, 2 * side_length)
         self.diag = math.sqrt(side_length ** 2 + (side_length / 2) ** 2)
         self.points = [pos, pos, pos]
-        self.lspeed = 0.04
-        self.despeed = self.lspeed / 2
-        self.maxspeed = 2.0
-        self.aspeed = math.pi / 90.0
+        self.aspeed = math.pi / 45.0
         self.angle = 0
+        self.maxspeed = 2.0
+        self.speed = Vector2D(0, -0.05)
         self.velocity = Vector2D.zeros()
         self.color = pygame.Color('white')
         self.ret_color = pygame.Color(24, 24, 24)
@@ -88,23 +87,30 @@ class Player(object):
         if not self.alive:
             return
         keys = pygame.key.get_pressed()
-        if keys[pygame.K_DOWN] and self.velocity.Y < self.maxspeed:
-                self.velocity.Y += self.lspeed
-        elif keys[pygame.K_UP] and self.velocity.Y > -self.maxspeed:
-                self.velocity.Y -= self.lspeed
-        else:
-            if self.velocity.Y > 0:
-                self.velocity.Y -= self.despeed
-            elif self.velocity.Y < 0:
-                self.velocity.Y += self.despeed
 
+        # increase current_speed, and therefore velocity
+        # only rotate player's velocity when accelerating
+        #if keys[pygame.K_UP] and self.velocity.Y > -self.maxspeed:
+        #        self.current_speed -= self.lspeed
+        #        self.velocity.Y = self.current_speed
+        #        self.velocity = self.velocity.rotate(self.angle)
+        if keys[pygame.K_UP]:
+            new = self.velocity + self.speed.rotate(self.angle)
+            if not new.length() > self.maxspeed:
+                self.velocity = new
+
+        # turn the player with right/left keys
         if keys[pygame.K_LEFT]:
             self.angle -= self.aspeed
         elif keys[pygame.K_RIGHT]:
             self.angle += self.aspeed
 
-        self.pos += self.velocity.rotate(self.angle)
+        # update the player's position
+        self.pos += self.velocity
         self.rect.center = self.pos
+
+        # update the lines that form our ship, they are always rotated with
+        #   respect to the player's angle
         self.points[0] = Vector2D(0, -self.diag).rotate(self.angle) + self.pos
         self.points[1] = Vector2D(self.diag, 2 * self.diag).rotate(self.angle) + self.pos
         self.points[2] = Vector2D(-self.diag, 2 * self.diag).rotate(self.angle) + self.pos
@@ -113,20 +119,21 @@ class Player(object):
         if self.alive:
             pygame.draw.lines(surface, self.color, True, self.points)
             # draw a 'reticle'
-            direction = Vector2D(0, -512).rotate(self.angle)
-            pygame.draw.line(surface, self.ret_color, self.pos, self.pos + direction, 1)
+            #direction = Vector2D(0, -512).rotate(self.angle)
+            #pygame.draw.line(surface, self.ret_color, self.pos, self.pos + direction, 1)
 
 
 
 class Asteroid(object):
-    def __init__(self, pos, radius_range):
+    def __init__(self, pos, size):
         self.pos = pos
-        self.radius = random.randint(radius_range[0], radius_range[1])
-        xspeed = (random.random() * 2 - 1) / random.randint(1, 5)
-        yspeed = (random.random() * 2 - 1) / random.randint(1, 5)
+        self.size = size
+        self.radius = random.randint(size - (size / 10), size + (size / 10))
+        xspeed = (random.random() * 2 - 1) / random.randint(1, 4)
+        yspeed = (random.random() * 2 - 1) / random.randint(1, 4)
         self.velocity = Vector2D(xspeed, yspeed)
-        num_sides = random.randint(5, 10)
-        maxd = 2 * self.radius / num_sides
+        num_sides = random.randint(8, 16)
+        maxd = self.radius / 2
         a = 2 * math.pi / num_sides
         v = Vector2D(self.radius, 0.0)
         self.points = list()
@@ -168,47 +175,64 @@ class AsteroidField(object):
         self.min_radius = (viewport.width + viewport.height) / 200
         self.max_radius = (viewport.width + viewport.height) / 40
         self.radius_range = self.max_radius - self.min_radius
-        self.small = self.min_radius + self.radius_range / 3
-        self.med = self.small + self.radius_range / 3
+        self.small = self.min_radius
+        self.med = self.small + self.radius_range / 2
         self.big = self.max_radius
+        self.big_offsets = [
+                Vector2D(self.med, self.med),
+                #Vector2D(self.med, -self.med),
+                #Vector2D(-self.med, self.med),
+                Vector2D(-self.med, -self.med)
+        ]
+        self.med_offsets = [Vector2D(self.med, 0), Vector2D(-self.med, 0)]
 
-        count = 5 * level + 10
+        count = level + 4
 
         self.asteroids = [
                         Asteroid(
                             Vector2D(
                                 random.randint(0, viewport.width),
                                 random.randint(0, viewport.height)
-                            ),
-                            (self.min_radius, self.max_radius)
+                            ), self.big
                         )
                         for i in range(count)
         ]
         # move each asteroid if it initially collides with the player
         for i, a in enumerate(self.asteroids):
             if a.rect.colliderect(forbidden_rect):
-                self.asteroids[i] = Asteroid(
-                                        Vector2D(
-                                            a.pos.X + forbidden_rect.centerx,
-                                            a.pos.Y + forbidden_rect.centery,
-                                        ), (self.min_radius, self.max_radius)
-                                    )
+                a.pos.X += forbidden_rect.centerx + a.radius
+                a.pos.Y += forbidden_rect.centery + a.radius
+                a.update(0.0)   # must call update to properly update its pos
+
+    def kill(self, a):
+        if a.size == self.big:
+            children = [
+                        Asteroid(Vector2D(a.pos.X, a.pos.Y) + off, self.med)
+                        for off in self.big_offsets
+            ]
+            self.asteroids.extend(children)
+        elif a.size == self.med:
+            children = [
+                        Asteroid(Vector2D(a.pos.X, a.pos.Y) + off, self.small)
+                        for off in self.med_offsets
+            ]
+            self.asteroids.extend(children)
+
+        # remove/delete the destroyed asteroid
+        self.asteroids.remove(a)
+        del(a)
 
     def update(self, ms):
         for a in self.asteroids:
-            if not a.alive:
-                self.asteroids.remove(a)
-                del(a)
-            else:
-                if a.pos.X < self.viewport.left:
-                    a.pos.X = self.viewport.right
-                elif a.pos.X > self.viewport.right:
-                    a.pos.X = self.viewport.left
-                if a.pos.Y < self.viewport.top:
-                    a.pos.Y = self.viewport.bottom
-                elif a.pos.Y > self.viewport.bottom:
-                    a.pos.Y = self.viewport.top
-                a.update(ms)
+            if a.pos.X < self.viewport.left:
+                a.pos.X = self.viewport.right
+            elif a.pos.X > self.viewport.right:
+                a.pos.X = self.viewport.left
+            if a.pos.Y < self.viewport.top:
+                a.pos.Y = self.viewport.bottom
+            elif a.pos.Y > self.viewport.bottom:
+                a.pos.Y = self.viewport.top
+            a.update(ms)
 
     def render(self, surface, ms):
         for a in self.asteroids:
@@ -265,7 +289,7 @@ class Bullet(object):
         self.pos = center
         self.rect = pygame.rect.Rect(0, 0, 2*self.radius, 2*self.radius)
         self.rect.center = (center.X, center.Y)
-        self.velocity = direction.normal() * 4
+        self.velocity = direction.normal() * 5
         self.alive = True
         self._age = 0
         self._lifetime = 2000
@@ -397,13 +421,13 @@ def main():
                 if a.rect.colliderect(b.rect):
                     b.alive = False
                     player0.score += 1
+                    afield.kill(a)
                     if a.radius < afield.small:
                         explosions.append(Explosion(small_explode_sprite, a.rect.center))
                     elif a.radius < afield.med:
                         explosions.append(Explosion(med_explode_sprite, a.rect.center))
                     else:
                         explosions.append(Explosion(big_explode_sprite, a.rect.center))
-                    a.alive = False
 
         if len(afield.asteroids) == 0:
             LEVEL += 1
