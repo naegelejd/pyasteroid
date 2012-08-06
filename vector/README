@@ -1,0 +1,9 @@
+The vectormodule.c contains the C code for a Python 2D vector object.
+I made it for fun, since the code really isn't much faster than implementing the object in Python.
+
+I've included the source in order to build it on multiple platforms.
+
+run:
+> python setup.py build
+
+and copy vector.so from within the 'build/.../' directory
