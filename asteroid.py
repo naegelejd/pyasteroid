@@ -62,6 +62,7 @@ class Player(object):
         self.rect = pygame.rect.Rect(0, 0, 2 * side_length, 2 * side_length)
         self.diag = math.sqrt(side_length ** 2 + (side_length / 2) ** 2)
         self.points = [pos, pos, pos]
+        self.exhaust = [pos, pos, pos, pos, pos, pos, pos]
         self.aspeed = math.pi / 45.0
         self.angle = 0
         self.maxspeed = 2.0
@@ -70,12 +71,16 @@ class Player(object):
         self.color = pygame.Color('white')
         self.ret_color = pygame.Color(24, 24, 24)
         self.health = 100
+        self.lives = 3
         self.alive = True
         self.score = 0
         self.update(0.0)
 
     def get_health(self):
-        return self.health
+        return  self.health / 10 * 10   # display health in multiples of 10
+
+    def get_lives(self):
+        return self.lives
 
     def get_score(self):
         return self.score
@@ -94,9 +99,11 @@ class Player(object):
         #        self.current_speed -= self.lspeed
         #        self.velocity.Y = self.current_speed
         #        self.velocity = self.velocity.rotate(self.angle)
+        self.accelerating = False
         if keys[pygame.K_UP]:
             new = self.velocity + self.speed.rotate(self.angle)
             if not new.length() > self.maxspeed:
+                self.accelerating = True
                 self.velocity = new
 
         # turn the player with right/left keys
@@ -114,13 +121,56 @@ class Player(object):
         self.points[0] = Vector2D(0, -self.diag).rotate(self.angle) + self.pos
         self.points[1] = Vector2D(self.diag, 2 * self.diag).rotate(self.angle) + self.pos
         self.points[2] = Vector2D(-self.diag, 2 * self.diag).rotate(self.angle) + self.pos
+        self.exhaust[0] = self.points[1]
+        self.exhaust[1] = Vector2D(self.diag, 3 * self.diag).rotate(self.angle) + self.pos
+        self.exhaust[2] = Vector2D(self.diag / 2, 2.5 * self.diag).rotate(self.angle) + self.pos
+        self.exhaust[3] = Vector2D(0, 4 * self.diag).rotate(self.angle) + self.pos
+        self.exhaust[4] = Vector2D(-self.diag / 2, 2.5 * self.diag).rotate(self.angle) + self.pos
+        self.exhaust[5] = Vector2D(-self.diag, 3 * self.diag).rotate(self.angle) + self.pos
+        self.exhaust[6] = self.points[2]
 
     def render(self, surface, ms):
         if self.alive:
             pygame.draw.lines(surface, self.color, True, self.points)
-            # draw a 'reticle'
-            #direction = Vector2D(0, -512).rotate(self.angle)
-            #pygame.draw.line(surface, self.ret_color, self.pos, self.pos + direction, 1)
+            if self.accelerating:
+                pygame.draw.lines(surface, self.color, True, self.exhaust)
+
+
+class Alien(object):
+    def __init__(self, radius, viewport):
+        self.radius = radius
+        self.color = pygame.Color('red')
+        self.velocity = Vector2D(
+                                random.randint(-2, 2),
+                                random.randint(-2, 2)
+                        )
+        self.pos = Vector2D(
+                            random.randint(viewport.left, viewport.right),
+                            random.randint(viewport.top, viewport.bottom)
+                    )
+        self.sq_offsets = [
+                Vector2D(1.5 * radius, .5 * radius),
+                Vector2D(1.5 * radius, -.5 * radius),
+                Vector2D(-1.5 * radius, -.5 * radius),
+                Vector2D(-1.5 * radius, .5 * radius)
+                ]
+        self.small_offsets = [Vector2D(-1.5 * radius, 0), Vector2D(1.5 * radius, 0)]
+        self.points = [self.pos for i in self.sq_offsets]
+        self.small_circles = [self.pos for i in self.small_offsets]
+
+    def update(self, ms):
+        self.pos += self.velocity
+        for i, point in enumerate(self.sq_offsets):
+            self.points[i] = point + self.pos
+        for i, point in enumerate(self.small_offsets):
+            self.small_circles[i] = point + self.pos
+
+    def render(self, surface, ms):
+        pygame.draw.lines(surface, self.color, True, self.points)
+        for c in self.small_circles:
+            pygame.draw.circle(surface, self.color, (int(c.X), int(c.Y)), self.radius / 2, 1)
+        pygame.draw.circle(surface, self.color, (int(self.pos.X), int(self.pos.Y)), self.radius, 1)
+
 
 
 
@@ -257,29 +307,34 @@ class Camera(object):
 
 class HUD(object):
     """heads up display shows Health, Score and Level"""
-    def __init__(self, size, fontsize, funcs):
-        assert(len(funcs) == 3)
+    def __init__(self, size, fontsize, lifefunc, healthfunc,
+                levelfunc, scorefunc):
         self.width, self.height = size
         self.font = pygame.font.Font(None, fontsize)
         self.color = pygame.Color('white')
         self.bgcolor = pygame.Color('black')
-        self.funcs = funcs
-        self.num_items = len(funcs)
+        self.lifefunc = lifefunc
+        self.healthfunc = healthfunc
+        self.levelfunc = levelfunc
+        self.scorefunc = scorefunc
+        self.num_items = 4
         self.surfaces = [None for i in range(self.num_items)]
 
     def update(self, ms):
         #for i, func in enumerate(self.funcs):
-        self.surfaces[0] = self.font.render("Health: " +
-                str(int(self.funcs[0]())), 1, self.color)
-        self.surfaces[1] = self.font.render("Score: " +
-                str(int(self.funcs[1]())), 1, self.color)
+        self.surfaces[0] = self.font.render("Lives: " +
+                str(int(self.lifefunc())), 1, self.color)
+        self.surfaces[1] = self.font.render("Health: " +
+                str(int(self.healthfunc())), 1, self.color)
         self.surfaces[2] = self.font.render("Level: " +
-                str(int(self.funcs[2]())), 1, self.color)
+                str(int(self.levelfunc())), 1, self.color)
+        self.surfaces[3] = self.font.render("Score: " +
+                str(int(self.scorefunc())), 1, self.color)
 
 
     def render(self, surface, ms):
         for i, s in enumerate(self.surfaces):
-            surface.blit(s, ((i + 1) * (self.width / (self.num_items + 2)), 0))
+            surface.blit(s, (i * (self.width / (self.num_items)) + 10, 10))
 
 
 class Bullet(object):
@@ -355,6 +410,7 @@ def main():
     viewport = pygame.rect.Rect((0,0),size)
     clock = pygame.time.Clock()
     player0 = Player(Vector2D(300, 200))
+    alien = None
 
     LEVEL = 1
 
@@ -377,10 +433,10 @@ def main():
 
     bullets = list()
 
-    hud_items = [player0.get_health, player0.get_score, get_level]
+    hud_items = [player0.get_lives, player0.get_health, get_level, player0.get_score]
     #for player in players:
     #    healths.append(player.get_health)
-    hud = HUD(size, 32, hud_items)
+    hud = HUD(size, 32, *hud_items)
 
     game_over_font = pygame.font.Font(None, 72)
     game_over_msg = game_over_font.render("GAME OVER", 1, pygame.Color('white'))
@@ -405,6 +461,9 @@ def main():
                     running = False
                 if e.key == pygame.K_SPACE and player0.alive:
                     bullets.append(Bullet(player0.pos, player0.get_direction()))
+
+        #if random.randint(0, 100) > 95:
+        #    alien = Alien(20, viewport)
 
         for b in bullets:
             # kill bullets that have left the viewport
@@ -438,12 +497,24 @@ def main():
         for a in afield.asteroids:
             if player0.alive and a.rect.colliderect(player0.rect):
                 player0.health -= 1
-                if player0.health <= 0:
-                    explosions.append(Explosion(big_explode_sprite, player0.rect.center))
-                    # game over
-                    player0.alive = False
-                    game_over = True
 
+                # remove player life
+                if player0.health <= 0:
+                    player0.lives -= 1
+                    if player0.lives <= 0:
+                        explosions.append(
+                                Explosion(
+                                        big_explode_sprite,
+                                        player0.rect.center
+                                        )
+                                )
+                        # game over
+                        player0.alive = False
+                        game_over = True
+                    else:
+                        player0.health = 100
+
+        # wrap player position when offscreen
         if player0.pos.X < 0:
             player0.pos.X = size[0]
         elif player0.pos.X > size[0]:
@@ -455,6 +526,10 @@ def main():
 
         player0.update(clock.get_time())
         afield.update(clock.get_time())
+
+        if alien is not None:
+            alien.update(clock.get_time())
+
         for bull in bullets:
             if not bull.alive:
                 bullets.remove(bull)
@@ -481,6 +556,8 @@ def main():
         for p in explosions:
             p.render(screen, clock.get_time())
         afield.render(screen, clock.get_time())
+        if alien is not None:
+            alien.render(screen, clock.get_time())
         hud.render(screen, clock.get_time())
 
         pygame.display.flip()
