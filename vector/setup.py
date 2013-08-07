@@ -3,8 +3,12 @@ from distutils.core import setup, Extension
 vector = Extension("vector", sources=["vectormodule.c"])
 
 setup(
-    name="vector",
-    version='1.0',
-    description="Provides a basic 2d vector object.",
+    name = "vector",
+    version = '0.0.2',
+    author =  "Joseph Naegele",
+    author_email = "joseph.naegele@gmail.com",
+    description = "A basic 2D vector class.",
+    license = "MIT",
+    keywords = "vector 2D",
     ext_modules=[vector]
 )
