@@ -12,10 +12,9 @@ LEVEL = 0
 
 #########
 
-def load_image(name, scale=1, colorkey=None):
-    fullname = os.path.abspath(name.replace('../', '../../res/'))
+def load_image(fullpath, scale=1, colorkey=None):
     try:
-        image = pygame.image.load(fullname)
+        image = pygame.image.load(fullpath)
     except pygame.error, message:
         print 'Cannot load image:', name
         raise SystemExit, message
@@ -49,10 +48,6 @@ def load_sliced_sprites(w, h, master_image):
         for i in xrange(int(master_width/w)):
             images[j].append(master_image.subsurface((i*w,j*h,w,h)))
     return images
-
-
-class DUMMY(object):
-    value = None
 
 
 class Player(object):
@@ -569,7 +564,4 @@ def main():
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == 'profile':
-        profile.run("main()")
-    else:
-        main()
+    main()
