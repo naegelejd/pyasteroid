@@ -18,7 +18,6 @@ setup(
     url="https://github.com/naegelejd/pyasteroid",
     install_requires = ['Pygame>=1.8'],
     packages=['asteroids'],
-    package_dir={'':'src'},
     package_data= {'':['*.png']},
     entry_points = {'console_scripts': ['asteroids = asteroids.main:main']},
     ext_modules=[vector],
