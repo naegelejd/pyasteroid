@@ -9,14 +9,31 @@ import cProfile as profile
 
 # GLOBALS
 LEVEL = 0
+RESDIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'res')
 
 #########
 
-def load_image(fullpath, scale=1, colorkey=None):
+def load_sound(name):
+    """Borrowed from http://www.pygame.org/docs/tut/chimp/ChimpLineByLine.html"""
+    class NoneSound:
+        def play(self): pass
+    if not pygame.mixer:
+        return NoneSound()
+    fullpath = os.path.join(RESDIR, name)
+    try:
+        sound = pygame.mixer.Sound(fullpath)
+    except pygame.error, message:
+        print('Cannot load sound: %s' % name)
+        raise SystemExit, message
+    return sound
+
+def load_image(name, scale=1, colorkey=None):
+    """Borrowed from http://www.pygame.org/docs/tut/chimp/ChimpLineByLine.html"""
+    fullpath = os.path.join(RESDIR, name)
     try:
         image = pygame.image.load(fullpath)
     except pygame.error, message:
-        print 'Cannot load image:', name
+        print('Cannot load image: %s' % name)
         raise SystemExit, message
     image = image.convert_alpha()
     if colorkey is not None:
@@ -411,15 +428,13 @@ def main():
 
     afield = AsteroidField(LEVEL, viewport, player0.rect)
 
-    dirname = os.path.dirname(os.path.abspath(__file__))
-    explosion_image = os.path.join(dirname, 'explosion-sprite.png')
-
+    explosion_sound = 'explosion.wav'
+    explode_sound = load_sound(explosion_sound)
+    explosion_image = 'explosion-sprite.png'
     small_explode_image = load_image(explosion_image, scale=1)
     small_explode_sprite = load_sliced_sprites(20, 20, small_explode_image)
-
     med_explode_image = load_image(explosion_image, scale=2)
     med_explode_sprite = load_sliced_sprites(40, 40, med_explode_image)
-
     big_explode_image = load_image(explosion_image, scale=3)
     big_explode_sprite = load_sliced_sprites(60, 60, big_explode_image)
 
@@ -495,6 +510,7 @@ def main():
 
                 # remove player life
                 if player0.health <= 0:
+                    explode_sound.play()
                     player0.lives -= 1
                     if player0.lives <= 0:
                         explosions.append(
@@ -531,6 +547,7 @@ def main():
                 del(bull)
             else:
                 bull.update(clock.get_time())
+
         for pop in explosions:
             if not pop.alive:
                 explosions.remove(pop)
